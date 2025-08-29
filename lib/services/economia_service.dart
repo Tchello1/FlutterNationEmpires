@@ -1,3 +1,4 @@
+import 'dart:math' show pow; // <-- NOVO
 import '../persistencia/entidade/nacao.dart';
 
 class EconomiaService {
@@ -35,13 +36,13 @@ class EconomiaService {
 
     // Receita e orçamento
     final receitaAno = e.pib * e.impostoPct;
-    final orcAno = receitaAno * e.orcamentoPct;
+    final orcamentoAno = receitaAno * e.orcamentoPct;
 
     // Shares normalizados
     final sh = normalizeShares(e.pesquisaPct, e.militarPct, e.infraPct);
 
     // Gasto efetivo em infra como fração do PIB
-    final despInfraAno = orcAno * sh.i;
+    final despInfraAno = orcamentoAno * sh.i;
     final infraSharePIB = (e.pib <= 0) ? 0.0 : (despInfraAno / e.pib);
 
     // Termos de crescimento
@@ -68,7 +69,7 @@ class EconomiaService {
       researchBonus: researchBonus,
       total: total,
       receitaAno: receitaAno,
-      orcamentoAno: orcAno,
+      orcamentoAno: orcamentoAno,
       despInfraAno: despInfraAno,
       infraSharePIB: infraSharePIB,
     );
@@ -76,7 +77,20 @@ class EconomiaService {
 
   static double calcularGrowthAnual(Nacao n) => breakdown(n).total;
 
-  // Passo de simulação
+  /// (Opcional) Só aplica crescimento do PIB, para quem não usa `step`.
+  static void aplicarCrescimentoPIB(Nacao n, double dtDays) {
+    if (dtDays == 0) return;
+    final e = n.economia;
+    final g = calcularGrowthAnual(n);      // fração/ano (pode ser negativa)
+    final years = dtDays / 365.0;
+    final base = 1.0 + g;
+    // guarda para casos extremos (evita base <= 0 gerar NaN)
+    final factor = (base <= 0) ? 1e-6 : pow(base, years).toDouble();
+    e.pib *= factor;
+    if (!e.pib.isFinite || e.pib < 0) e.pib = 0.0;
+  }
+
+  // Passo de simulação (economia completa + satisfação + pop + PIB)
   static double step(Nacao n, double dtDays) {
     final e = n.economia;
     final years = dtDays / 365.0;
@@ -113,9 +127,12 @@ class EconomiaService {
 
     n.satisfacao = _clamp01(n.satisfacao + dHappy * years);
 
-    // Crescimento do PIB
-    final g = calcularGrowthAnual(n);
-    e.pib *= (1.0 + g * years);
+    // Crescimento do PIB (COMPOSTO) — ***aqui está a correção***
+    final g = calcularGrowthAnual(n); // fração/ano (pode ser negativa)
+    final base = 1.0 + g;
+    final factor = (base <= 0) ? 1e-6 : pow(base, years).toDouble();
+    e.pib *= factor;
+    if (!e.pib.isFinite || e.pib < 0) e.pib = 0.0;
 
     // População
     final rPop = basePop + kPopHappy * (n.satisfacao - 0.5);

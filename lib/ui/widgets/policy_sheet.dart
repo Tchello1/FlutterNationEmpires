@@ -70,11 +70,23 @@ class _PolicySheetState extends State<PolicySheet> {
   double get _milDia   => _orcamentoDia * _mNorm;
   double get _infraDia => _orcamentoDia * _iNorm;
 
+  void _onShareChanged(void Function() mutate) {
+    setState(() {
+      mutate();
+      // Se não há nenhuma categoria com peso > 0, zera o orçamento.
+      if ((_pShare + _mShare + _iShare) <= 1e-9) {
+        _orc = 0.0;
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final corSaldo = _saldoDia >= 0
         ? Colors.green.withValues(alpha: 0.15)
         : Colors.red.withValues(alpha: 0.15);
+
+    final bool noShares = _sumShares <= 1e-9;
 
     return SafeArea(
       child: SizedBox(
@@ -146,15 +158,17 @@ class _PolicySheetState extends State<PolicySheet> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(
-                              '${_saldoDia >= 0 ? 'Superávit' : 'Déficit'}: ${_saldoDia.toStringAsFixed(2)} / dia',
-                              style: const TextStyle(fontWeight: FontWeight.w600),
+                                '${_saldoDia >= 0 ? 'Superávit' : 'Déficit'}: ${_saldoDia.toStringAsFixed(2)} / dia',
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
                             ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Obs.: P&D/Militar/Infra são **normalizados** para dividir 100% do orçamento.',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
+                            if (noShares) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                'Nenhuma categoria com peso > 0. Orçamento zerado automaticamente.',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -184,7 +198,8 @@ class _PolicySheetState extends State<PolicySheet> {
                     value: _orc,
                     min: 0, max: 2, divisions: 200,
                     suffix: '${(_orc * 100).toStringAsFixed(0)}%',
-                    onChanged: (v) => setState(() => _orc = v),
+                    // Desabilita quando não há categorias com peso > 0
+                    onChanged: noShares ? null : (v) => setState(() => _orc = v),
                   ),
                   const SizedBox(height: 8),
                   _sliderTile(
@@ -193,7 +208,7 @@ class _PolicySheetState extends State<PolicySheet> {
                     value: _pShare,
                     min: 0, max: 1, divisions: 100,
                     suffix: '${(_pNorm * 100).toStringAsFixed(0)}%', // mostra normalizado
-                    onChanged: (v) => setState(() => _pShare = v),
+                    onChanged: (v) => _onShareChanged(() => _pShare = v),
                   ),
                   const SizedBox(height: 8),
                   _sliderTile(
@@ -202,7 +217,7 @@ class _PolicySheetState extends State<PolicySheet> {
                     value: _mShare,
                     min: 0, max: 1, divisions: 100,
                     suffix: '${(_mNorm * 100).toStringAsFixed(0)}%',
-                    onChanged: (v) => setState(() => _mShare = v),
+                    onChanged: (v) => _onShareChanged(() => _mShare = v),
                   ),
                   const SizedBox(height: 8),
                   _sliderTile(
@@ -211,7 +226,7 @@ class _PolicySheetState extends State<PolicySheet> {
                     value: _iShare,
                     min: 0, max: 1, divisions: 100,
                     suffix: '${(_iNorm * 100).toStringAsFixed(0)}%',
-                    onChanged: (v) => setState(() => _iShare = v),
+                    onChanged: (v) => _onShareChanged(() => _iShare = v),
                   ),
                 ],
               ),
@@ -258,7 +273,7 @@ class _PolicySheetState extends State<PolicySheet> {
     required double max,
     required int divisions,
     required String suffix,
-    required ValueChanged<double> onChanged,
+    required ValueChanged<double>? onChanged,
   }) {
     return Card(
       child: Padding(

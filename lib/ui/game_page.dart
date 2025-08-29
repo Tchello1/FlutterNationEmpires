@@ -8,6 +8,7 @@ import 'widgets/research_status_sheet.dart';
 import 'widgets/economy_panel.dart';
 import '../services/game_manager.dart';
 import '../persistencia/entidade/mapa_hex.dart';
+import '../services/economia_service.dart';
 
 class GamePage extends StatefulWidget {
   const GamePage({super.key});
@@ -48,7 +49,7 @@ class _GamePageState extends State<GamePage> {
       context: context,
       isScrollControlled: true,
       builder: (_) => PolicySheet(
-        pib: e.pib,                  // <- corrigido
+        pib: e.pib,
         impostoPct: e.impostoPct,
         orcamentoPct: e.orcamentoPct,
         pesquisaShare: e.pesquisaPct,
@@ -85,6 +86,10 @@ class _GamePageState extends State<GamePage> {
       builder: (_, __) {
         final e = gm.jogador.economia;
 
+        // crescimento anual calculado pelo EconomiaService (para o HUD)
+        final breakdown = EconomiaService.breakdown(gm.jogador);
+        final growthAnnual = breakdown.total; // fração, ex.: 0.027 = 2.7% a.a.
+
         return Scaffold(
           appBar: AppBar(title: const Text('CivLite')),
           body: Column(
@@ -103,7 +108,7 @@ class _GamePageState extends State<GamePage> {
                 onOpenEconomy: _abrirEconomia,
                 populacao: gm.jogador.populacao,
                 satisfacao: gm.jogador.satisfacao,
-                growthAnnual: gm.growthAnnual,
+                growthAnnual: growthAnnual,
               ),
               Expanded(
                 child: MapCanvas(

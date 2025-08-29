@@ -6,10 +6,10 @@ import '../persistencia/entidade/economia.dart';
 import '../persistencia/entidade/mapa_hex.dart';
 import '../persistencia/entidade/pesquisas.dart';
 import '../persistencia/entidade/area.dart';
-import '../persistencia/entidade/tecnologia.dart';
 
 import 'mapa_service.dart';
 import 'tech_tree.dart';
+import 'economia_service.dart'; // <-- usa step() e breakdown()
 
 class GameEvent {
   final String type;
@@ -191,20 +191,17 @@ class GameManager extends ChangeNotifier {
   void _updateNation(Nacao n, double dtDays) {
     final e = n.economia;
 
-    // 1) Arrecadação/dia (impostos)
+    // --- 1) Calcula orçamento e P&D "por dia" com o PIB atual ---
     final impostosDia = (e.pib * e.impostoPct) / 365.0;
-
-    // 2) Orçamento/dia (0..200% da arrecadação)
     final orcPct = e.orcamentoPct.clamp(0.0, 2.0);
     final orcamentoDia = impostosDia * orcPct;
 
-    // 3) Shares do orçamento (normalizados para somar 1.0)
+    // shares normalizados (P&D/Mil/Infra)
     var pShare = e.pesquisaPct.clamp(0.0, 1.0);
     var mShare = e.militarPct.clamp(0.0, 1.0);
     var iShare = e.infraPct.clamp(0.0, 1.0);
     final sum = (pShare + mShare + iShare);
     if (sum <= 0) {
-      // fallback: divide igualmente
       pShare = mShare = iShare = 1 / 3;
     } else {
       pShare /= sum;
@@ -212,16 +209,12 @@ class GameManager extends ChangeNotifier {
       iShare /= sum;
     }
 
-    // 4) Montantes/dia por categoria
-    final pAndDDia   = orcamentoDia * pShare;
-    final militarDia = orcamentoDia * mShare;
-    final infraDia   = orcamentoDia * iShare;
+    final pAndDDia = orcamentoDia * pShare; // **somente** para P&D (UI/pesquisa)
 
-    // 5) Saldo e caixa
-    e.saldo = impostosDia - orcamentoDia; // superávit/deficit
-    e.caixa += e.saldo * dtDays;
+    // --- 2) Avança a economia macro (caixa/PIB/satisfação/pop) numa passo composto ---
+    EconomiaService.step(n, dtDays);
 
-    // 6) Pesquisa multi-área (consome pAndDDia)
+    // --- 3) Pesquisa multi-área: usa pAndDDia calculado antes do step ---
     _normalizeResearchAlloc(n);
     for (final area in Area.values) {
       final track = n.pesquisas.trilhas[area]!;
@@ -249,37 +242,6 @@ class GameManager extends ChangeNotifier {
         }
       }
     }
-
-    // 7) Efeitos simples de macro: crescimento do PIB e satisfação
-    //    - Base: e.crescimento (anual)
-    //    - Infra maior que ~33% do orçamento ajuda crescimento e satisfação; 0% piora
-    //    - P&D também ajuda um pouco o crescimento
-    //    - Imposto muito alto reduz satisfação
-    final infraBias = (iShare - (1 / 3)); // -0.33..+0.66
-    final pesqBias  = (pShare - (1 / 3));
-
-    final extraGrowth =
-        0.02 * infraBias + // até ±2% ao ano pela infra
-        0.03 * pesqBias;   // até ±3% ao ano por P&D
-
-    final effGrowthAnnual = (e.crescimento + extraGrowth).clamp(-0.10, 0.20); // segurança
-    // aplica crescimento em passos diários
-    e.pib += e.pib * (effGrowthAnnual * (dtDays / 365.0));
-
-    // Satisfação: efeito de infra + efeito de impostos
-    final taxBias = (e.impostoPct - 0.20); // acima de 20% começa a pesar
-    final dSatPerYear =
-        0.30 * infraBias    // infra alta melhora, baixa piora (até ±0.30/ano)
-        - 0.25 * taxBias;   // impostos altos reduzem (±0.25/ano na faixa)
-
-    n.satisfacao = (n.satisfacao + dSatPerYear * (dtDays / 365.0))
-        .clamp(0.0, 1.0);
-
-    // População: depende levemente de satisfação e infra
-    final basePopGrowth = 0.008; // ~0.8%/ano base
-    final popGrowth = (basePopGrowth + 0.01 * infraBias + 0.01 * (n.satisfacao - 0.5))
-        .clamp(-0.01, 0.03); // limites razoáveis
-    n.populacao = (n.populacao * (1 + popGrowth * (dtDays / 365.0))).round();
   }
 
   void _normalizeResearchAlloc(Nacao n) {
