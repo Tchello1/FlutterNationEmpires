@@ -1,3 +1,4 @@
+// lib/ui/widgets/hud_bar.dart
 import 'package:flutter/material.dart';
 import '../../persistencia/entidade/economia.dart';
 
@@ -15,6 +16,7 @@ class HudBar extends StatelessWidget {
     required this.onOpenPolicies,
     required this.onOpenResearch,
     required this.onOpenEconomy,
+    required this.onOpenArmy,        // <--- NOVO
     required this.populacao,
     required this.satisfacao,
     required this.growthAnnual,
@@ -32,6 +34,7 @@ class HudBar extends StatelessWidget {
   final VoidCallback onOpenPolicies;
   final VoidCallback onOpenResearch;
   final VoidCallback onOpenEconomy;
+  final VoidCallback onOpenArmy;     // <--- NOVO
 
   final int populacao;
   final double satisfacao;
@@ -57,7 +60,6 @@ class HudBar extends StatelessWidget {
           _pill('Caixa: ${e.caixa.toStringAsFixed(1)}'),
           _pill('Saldo/Dia: ${saldoDisplay.toStringAsFixed(2)}'),
           _pill('Imp: ${(e.impostoPct * 100).toStringAsFixed(0)}%'),
-          // removido: Orç(rec): 100%
           _pill('Pop: ${_fmtPop(populacao)}'),
           _pill('Satisf: ${(satisfacao * 100).toStringAsFixed(0)}%'),
           _pill('Cresc PIB: ${(growthAnnual * 100).toStringAsFixed(1)}% a.a.'),
@@ -73,6 +75,10 @@ class HudBar extends StatelessWidget {
           FilledButton.tonal(
             onPressed: onOpenEconomy,
             child: const Text('Economia'),
+          ),
+          FilledButton.tonal(
+            onPressed: onOpenArmy,            // <--- NOVO
+            child: const Text('Exército'),
           ),
 
           FilledButton.tonal(

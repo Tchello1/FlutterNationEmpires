@@ -1,3 +1,4 @@
+// lib/ui/game_page.dart
 import 'package:flutter/material.dart';
 
 import 'widgets/policy_sheet.dart';
@@ -6,6 +7,7 @@ import 'widgets/map_canvas.dart';
 import 'widgets/hex_composition_card.dart';
 import 'widgets/research_status_sheet.dart';
 import 'widgets/economy_panel.dart';
+import 'widgets/army_panel.dart';            // painel do exército (auto)
 import '../services/game_manager.dart';
 import '../persistencia/entidade/mapa_hex.dart';
 import '../services/economia_service.dart';
@@ -79,6 +81,22 @@ class _GamePageState extends State<GamePage> {
     );
   }
 
+  Future<void> _abrirExercito() async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => ArmyPanel(
+        nacao: gm.jogador,
+        onSetAllocAuto: (unid, recru, treino) =>
+            gm.setMilAllocAuto(gm.jogador, unid, recru, treino),
+        onSetTarget: (alvo) =>
+            gm.setMilTarget(gm.jogador, alvo), // <--- NOVO callback
+        onTogglePriority: (unitId) =>
+            gm.toggleUnitTrainingPriority(gm.jogador, unitId),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -86,9 +104,8 @@ class _GamePageState extends State<GamePage> {
       builder: (_, __) {
         final e = gm.jogador.economia;
 
-        // crescimento anual calculado pelo EconomiaService (para o HUD)
         final breakdown = EconomiaService.breakdown(gm.jogador);
-        final growthAnnual = breakdown.total; // fração, ex.: 0.027 = 2.7% a.a.
+        final growthAnnual = breakdown.total;
 
         return Scaffold(
           appBar: AppBar(title: const Text('CivLite')),
@@ -106,6 +123,7 @@ class _GamePageState extends State<GamePage> {
                 onOpenPolicies: _abrirPoliticas,
                 onOpenResearch: _abrirPesquisaStatus,
                 onOpenEconomy: _abrirEconomia,
+                onOpenArmy: _abrirExercito,
                 populacao: gm.jogador.populacao,
                 satisfacao: gm.jogador.satisfacao,
                 growthAnnual: growthAnnual,

@@ -1,3 +1,4 @@
+// lib/services/game_manager.dart
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 
@@ -9,7 +10,8 @@ import '../persistencia/entidade/area.dart';
 
 import 'mapa_service.dart';
 import 'tech_tree.dart';
-import 'economia_service.dart'; // <-- usa step() e breakdown()
+import 'economia_service.dart';
+import 'militar_service.dart';
 
 class GameEvent {
   final String type;
@@ -47,7 +49,7 @@ class GameManager extends ChangeNotifier {
 
   double get speed => _speed;
   bool get paused => _paused;
-  double get growthAnnual => jogador.economia.crescimento; // usado no HUD
+  double get growthAnnual => jogador.economia.crescimento;
 
   GameManager({this.largura = 10, this.altura = 10}) {
     _initWorld();
@@ -77,23 +79,20 @@ class GameManager extends ChangeNotifier {
       id: 1,
       nome: 'Jogador',
       populacao: 1_000_000,
-      satisfacao: 0.65, // 65%
+      satisfacao: 0.65,
       economia: Economia(
         pib: 1000.0,
         crescimento: 0.03,
         inflacao: 0.04,
         impostoPct: 0.20,
-        orcamentoPct: 1.00,   // % da arrecadação que vira orçamento (0..2.0)
-        pesquisaPct: 0.34,    // shares do orçamento (somam 1 após normalização)
+        orcamentoPct: 1.00,
+        pesquisaPct: 0.34,
         militarPct:  0.33,
         infraPct:    0.33,
         caixa: 200.0,
         saldo: 0.0,
       ),
       pesquisas: pesquisasDefault(),
-      exercito: const [],
-      territorios: [],
-      diplomacia: const {},
     );
 
     ia = Nacao(
@@ -114,16 +113,11 @@ class GameManager extends ChangeNotifier {
         saldo: 0.0,
       ),
       pesquisas: pesquisasDefault(),
-      exercito: const [],
-      territorios: [],
-      diplomacia: const {},
     );
 
-    // Capital inicial
     _claimHex(jogador, _hexAt(largura ~/ 3, altura ~/ 2));
     _claimHex(ia, _hexAt(2 * largura ~/ 3, altura ~/ 2));
 
-    // Escolhe algo inicial em cada área (só para ter barras andando)
     for (final a in Area.values) {
       _autoPickIfNull(jogador, a);
       _autoPickIfNull(ia, a);
@@ -135,7 +129,7 @@ class GameManager extends ChangeNotifier {
   void _claimHex(Nacao n, MapaHex hex) {
     if (hex.nacaoId == null) {
       hex.nacaoId = n.id;
-      n.territorios.add(hex);
+      n.territorios = [...n.territorios, hex]; // evita "Unsupported operation: add"
     }
   }
 
@@ -178,7 +172,7 @@ class GameManager extends ChangeNotifier {
     _lastUpdate = now;
     if (dtRealSec <= 0) return;
 
-    final dtDays = dtRealSec * _speed; // 1 seg real = speed dias de jogo
+    final dtDays = dtRealSec * _speed; // 1s real = speed dias de jogo
     simDays += dtDays;
 
     _updateNation(jogador, dtDays);
@@ -187,16 +181,16 @@ class GameManager extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ---------- Economia & Pesquisa ----------
+  // ---------- Economia, Pesquisa e Militar ----------
   void _updateNation(Nacao n, double dtDays) {
     final e = n.economia;
 
-    // --- 1) Calcula orçamento e P&D "por dia" com o PIB atual ---
+    // 1) Orçamento/dia com PIB atual (antes do step)
     final impostosDia = (e.pib * e.impostoPct) / 365.0;
     final orcPct = e.orcamentoPct.clamp(0.0, 2.0);
     final orcamentoDia = impostosDia * orcPct;
 
-    // shares normalizados (P&D/Mil/Infra)
+    // Shares normalizados (P&D/Mil/Infra)
     var pShare = e.pesquisaPct.clamp(0.0, 1.0);
     var mShare = e.militarPct.clamp(0.0, 1.0);
     var iShare = e.infraPct.clamp(0.0, 1.0);
@@ -204,17 +198,16 @@ class GameManager extends ChangeNotifier {
     if (sum <= 0) {
       pShare = mShare = iShare = 1 / 3;
     } else {
-      pShare /= sum;
-      mShare /= sum;
-      iShare /= sum;
+      pShare /= sum; mShare /= sum; iShare /= sum;
     }
 
-    final pAndDDia = orcamentoDia * pShare; // **somente** para P&D (UI/pesquisa)
+    final pAndDDia   = orcamentoDia * pShare; // P&D
+    final militarDia = orcamentoDia * mShare; // Militar
 
-    // --- 2) Avança a economia macro (caixa/PIB/satisfação/pop) numa passo composto ---
+    // 2) Macro (caixa/PIB/satisfação/pop)
     EconomiaService.step(n, dtDays);
 
-    // --- 3) Pesquisa multi-área: usa pAndDDia calculado antes do step ---
+    // 3) P&D multi-área
     _normalizeResearchAlloc(n);
     for (final area in Area.values) {
       final track = n.pesquisas.trilhas[area]!;
@@ -223,7 +216,7 @@ class GameManager extends ChangeNotifier {
       final aloc = n.pesquisas.alocPctPorArea[area] ?? 0.0;
       if (aloc <= 0) continue;
 
-      final cienciaDia = pAndDDia * aloc; // “pontos”/dia
+      final cienciaDia = pAndDDia * aloc;
       if (track.atual != null) {
         track.progresso += cienciaDia * dtDays;
         final custo = track.atual!.custoPesquisa <= 0 ? 1.0 : track.atual!.custoPesquisa;
@@ -242,6 +235,14 @@ class GameManager extends ChangeNotifier {
         }
       }
     }
+
+    // 4) Militar — 100% automático
+    MilitarService.updateAuto(
+      n: n,
+      dtDays: dtDays,
+      militarDia: militarDia,
+      onEvent: (type, msg) => _pushEvent(type, msg),
+    );
   }
 
   void _normalizeResearchAlloc(Nacao n) {
@@ -267,7 +268,7 @@ class GameManager extends ChangeNotifier {
     }
   }
 
-  // ---------- UI helpers ----------
+  // ---------- UI helpers (políticas/pesquisa) ----------
   void ajustarPoliticas({
     required Nacao n,
     double? impostoPct,
@@ -293,7 +294,7 @@ class GameManager extends ChangeNotifier {
     notifyListeners();
   }
 
-  // P&D: seleção/fila
+  // ---------- P&D: seleção/fila (compat com ResearchStatusSheet) ----------
   void definirPesquisaArea(Nacao n, Area area, String techId) {
     final t = TechTree.byId[techId]!;
     final tk = n.pesquisas.trilhas[area]!;
@@ -316,15 +317,51 @@ class GameManager extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---------- UI helpers (militar automático) ----------
+  void setMilAllocAuto(Nacao n, double unidades, double recrut, double treino) {
+    double fU = unidades.clamp(0.0, 1.0);
+    double fR = recrut.clamp(0.0, 1.0);
+    double fT = treino.clamp(0.0, 1.0);
+    final soma = fU + fR + fT;
+    if (soma <= 1e-9) { fU = 0.6; fR = 0.3; fT = 0.1; }
+    else { fU /= soma; fR /= soma; fT /= soma; }
+    n.alocMilUnidadesPct = fU;
+    n.alocMilRecrutPct   = fR;
+    n.alocMilTreinoPct   = fT;
+    notifyListeners();
+  }
+
+  /// Define a meta de efetivo:
+  /// - 0 => seguir o CAP sustentável
+  /// - >0 => recrutar automaticamente até esse alvo (mesmo acima do CAP)
+  void setMilTarget(Nacao n, int alvo) {
+    n.milAlvoEfetivo = alvo < 0 ? 0 : alvo;
+    notifyListeners();
+  }
+
+  void toggleUnitTrainingPriority(Nacao n, String unitId) {
+    for (final u in n.exercito) {
+      if (u.id == unitId) {
+        u.priorTreino = !u.priorTreino;
+        break;
+      }
+    }
+    notifyListeners();
+  }
+
+  // ---------- Território ----------
   void tomarHex(Nacao n, int q, int r) {
     final h = _hexAt(q, r);
     if (h.nacaoId == n.id) return;
+
     if (h.nacaoId != null) {
       final outro = (h.nacaoId == jogador.id) ? jogador : ia;
-      outro.territorios.removeWhere((x) => x.q == q && x.r == r);
+      outro.territorios =
+          outro.territorios.where((x) => !(x.q == q && x.r == r)).toList();
     }
+
     h.nacaoId = n.id;
-    n.territorios.add(h);
+    n.territorios = [...n.territorios, h];
     notifyListeners();
   }
 }
